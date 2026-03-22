@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import { getDeviceId } from "@/lib/device-id";
+import { useAuth } from "@/lib/auth-context";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -16,6 +15,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 export function usePushSubscription() {
+  const { supabase, pinHash } = useAuth();
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permissionState, setPermissionState] = useState<NotificationPermission>("default");
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
@@ -44,7 +44,7 @@ export function usePushSubscription() {
   }, []);
 
   const requestPermission = useCallback(async () => {
-    if (!registration) return false;
+    if (!registration || !supabase) return false;
 
     const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!vapidPublicKey) {
@@ -67,19 +67,18 @@ export function usePushSubscription() {
       });
 
       // Store subscription in Supabase
-      const deviceId = getDeviceId();
       const subscriptionJSON = subscription.toJSON();
 
       const { error } = await supabase.from("push_subscriptions").upsert(
         {
-          device_id: deviceId,
+          pin_hash: pinHash,
           endpoint: subscriptionJSON.endpoint,
           p256dh: subscriptionJSON.keys?.p256dh ?? "",
           auth: subscriptionJSON.keys?.auth ?? "",
           subscription: subscriptionJSON,
           created_at: new Date().toISOString(),
         },
-        { onConflict: "device_id" }
+        { onConflict: "pin_hash" }
       );
 
       if (error) {
@@ -93,7 +92,7 @@ export function usePushSubscription() {
       console.error("Failed to subscribe to push:", err);
       return false;
     }
-  }, [registration]);
+  }, [registration, supabase, pinHash]);
 
   return { isSubscribed, permissionState, requestPermission };
 }

@@ -11,6 +11,8 @@ import {
   getCachedPanchang,
   getCachedFestivals,
 } from "@/hooks/useInfiniteCalendar";
+import { useAuth } from "@/lib/auth-context";
+import { PinScreen } from "@/components/PinScreen";
 
 function TodayIcon({ className }: { className?: string }) {
   return (
@@ -24,6 +26,46 @@ function TodayIcon({ className }: { className?: string }) {
 }
 
 export default function Home() {
+  const { pinHash, isLoading, isNewUser, authenticate, register } = useAuth();
+  const [pinMode, setPinMode] = useState<'enter' | 'setup' | 'confirm'>('enter');
+  const [setupPin, setSetupPin] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  // Show PIN screen if not authenticated
+  const showPinScreen = !pinHash && !isLoading;
+
+  const handlePinComplete = async (pin: string) => {
+    setPinError(null);
+
+    if (pinMode === 'setup') {
+      setSetupPin(pin);
+      setPinMode('confirm');
+      return;
+    }
+
+    if (pinMode === 'confirm') {
+      if (pin !== setupPin) {
+        setPinError("PINs don't match. Try again.");
+        setPinMode('setup');
+        setSetupPin(null);
+        return;
+      }
+      const success = await register(pin);
+      if (!success) {
+        setPinError("Failed to set PIN. Try again.");
+        setPinMode('setup');
+        setSetupPin(null);
+      }
+      return;
+    }
+
+    // mode === 'enter'
+    const success = await authenticate(pin);
+    if (!success) {
+      setPinError("Wrong PIN");
+    }
+  };
+
   const {
     today,
     primaryMode,
@@ -108,7 +150,35 @@ export default function Home() {
   const todayMonth = today.getMonth() + 1;
 
   return (
-    <div className="flex flex-col flex-1 min-h-dvh bg-background">
+    <>
+    {showPinScreen && (
+      <div className="fixed inset-0 z-[100]">
+        <PinScreen
+          mode={pinMode}
+          onComplete={handlePinComplete}
+          error={pinError}
+        />
+        {/* Link to switch between setup and enter modes */}
+        <div className="fixed bottom-8 left-0 right-0 text-center z-[101]">
+          {pinMode === 'enter' ? (
+            <button
+              onClick={() => { setPinMode('setup'); setPinError(null); }}
+              className="text-white/40 text-xs underline"
+            >
+              First time? Set a new PIN
+            </button>
+          ) : pinMode === 'setup' ? (
+            <button
+              onClick={() => { setPinMode('enter'); setPinError(null); }}
+              className="text-white/40 text-xs underline"
+            >
+              Already have a PIN? Enter it
+            </button>
+          ) : null}
+        </div>
+      </div>
+    )}
+    <div className={`flex flex-col flex-1 min-h-dvh bg-background ${showPinScreen ? 'pointer-events-none opacity-30' : ''}`}>
       {/* Sticky header */}
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur-sm border-b border-border/30">
         <div className="flex items-center justify-between px-4 py-3 w-full max-w-md mx-auto">
@@ -189,5 +259,6 @@ export default function Home() {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }

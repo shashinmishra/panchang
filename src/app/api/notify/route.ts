@@ -70,7 +70,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ message: 'No push subscriptions', sent: 0 });
     }
 
-    // Send notifications
+    // Send notifications – match each notification to subscriptions by pin_hash
     let sent = 0;
     for (const notif of dueNotifications) {
       const [y, m, d] = notif.date_key.split('-').map(Number);
@@ -80,7 +80,10 @@ export async function GET(request: Request) {
       const title = diffDays === 0 ? 'Today' : diffDays === 1 ? 'Tomorrow' : `In ${diffDays} days`;
       const body = notif.label || `Event on ${notif.date_key}`;
 
-      for (const sub of subscriptions) {
+      // Find push subscriptions for the same user (by pin_hash)
+      const targetSubs = subscriptions.filter(s => s.pin_hash === notif.pin_hash);
+
+      for (const sub of targetSubs) {
         try {
           await webpush.sendNotification(
             {

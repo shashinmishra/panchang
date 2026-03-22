@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabase";
-import { getDeviceId } from "@/lib/device-id";
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/lib/auth-context";
 
 export interface NotificationEntry {
   id: string;
@@ -60,7 +59,7 @@ interface SupabaseRow {
   repeat: string;
   enabled: boolean;
   label: string | null;
-  device_id?: string;
+  pin_hash?: string;
 }
 
 function rowToEntry(row: SupabaseRow): NotificationEntry {
@@ -77,18 +76,13 @@ function rowToEntry(row: SupabaseRow): NotificationEntry {
 // Hook – Supabase-backed implementation
 // ---------------------------------------------------------------------------
 function useSupabaseNotifications(year: number, month: number, day: number | null) {
+  const { supabase, pinHash } = useAuth();
   const [entries, setEntries] = useState<NotificationEntry[]>([]);
   const dateKey = day !== null ? toDateKey(year, month, day) : "";
-  const deviceId = useRef<string>("");
-
-  // Resolve device id once on the client
-  useEffect(() => {
-    deviceId.current = getDeviceId();
-  }, []);
 
   // Fetch entries whenever the selected date changes
   useEffect(() => {
-    if (!dateKey) {
+    if (!dateKey || !supabase) {
       setEntries([]);
       return;
     }
@@ -96,14 +90,10 @@ function useSupabaseNotifications(year: number, month: number, day: number | nul
     let cancelled = false;
 
     async function fetch() {
-      const did = getDeviceId(); // ensure we have it even on first render
-      deviceId.current = did;
-
-      const { data, error } = await supabase
+      const { data, error } = await supabase!
         .from("notification_preferences")
         .select("*")
-        .eq("date_key", dateKey)
-        .eq("device_id", did);
+        .eq("date_key", dateKey);
 
       if (!cancelled && !error && data) {
         setEntries((data as SupabaseRow[]).map(rowToEntry));
@@ -114,19 +104,18 @@ function useSupabaseNotifications(year: number, month: number, day: number | nul
     return () => {
       cancelled = true;
     };
-  }, [dateKey]);
+  }, [dateKey, supabase]);
 
   const addNotification = useCallback(
     async (daysBefore: number, repeat: "once" | "daily") => {
-      if (!dateKey) return;
-      const did = deviceId.current || getDeviceId();
+      if (!dateKey || !supabase) return;
 
       const newRow = {
         date_key: dateKey,
         days_before: daysBefore,
         repeat,
         enabled: true,
-        device_id: did,
+        pin_hash: pinHash,
       };
 
       const { data, error } = await supabase
@@ -139,12 +128,12 @@ function useSupabaseNotifications(year: number, month: number, day: number | nul
         setEntries((prev) => [...prev, rowToEntry(data as SupabaseRow)]);
       }
     },
-    [dateKey],
+    [dateKey, supabase, pinHash],
   );
 
   const removeNotification = useCallback(
     async (id: string) => {
-      if (!dateKey) return;
+      if (!dateKey || !supabase) return;
       const { error } = await supabase
         .from("notification_preferences")
         .delete()
@@ -154,12 +143,12 @@ function useSupabaseNotifications(year: number, month: number, day: number | nul
         setEntries((prev) => prev.filter((e) => e.id !== id));
       }
     },
-    [dateKey],
+    [dateKey, supabase],
   );
 
   const toggleNotification = useCallback(
     async (id: string) => {
-      if (!dateKey) return;
+      if (!dateKey || !supabase) return;
       const target = entries.find((e) => e.id === id);
       if (!target) return;
 
@@ -174,7 +163,7 @@ function useSupabaseNotifications(year: number, month: number, day: number | nul
         );
       }
     },
-    [dateKey, entries],
+    [dateKey, entries, supabase],
   );
 
   return { entries, addNotification, removeNotification, toggleNotification };
