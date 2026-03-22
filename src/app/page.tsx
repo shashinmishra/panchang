@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FlipToggle } from "@/components/calendar/MonthGrid";
+import { FlipToggle } from "@/components/calendar/FlipToggle";
 import { StaticMonthGrid } from "@/components/calendar/StaticMonthGrid";
 import { DayDetailSheet } from "@/components/calendar/DayDetailSheet";
 import { PushPermissionBanner } from "@/components/calendar/PushPermissionBanner";
