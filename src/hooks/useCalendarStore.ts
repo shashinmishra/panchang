@@ -17,7 +17,7 @@ export function useCalendarStore() {
   const [state, setState] = useState<CalendarState>({
     year: today.getFullYear(),
     month: today.getMonth() + 1,
-    selectedDay: today.getDate(),
+    selectedDay: null,
     primaryMode: "gregorian",
   });
 

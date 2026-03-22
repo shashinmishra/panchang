@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_Devanagari } from "next/font/google";
 import "./globals.css";
+import { ClientNavBar } from "@/components/calendar/ClientNavBar";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -47,7 +49,11 @@ export default function RootLayout({
       <head>
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full flex flex-col font-sans pb-16">
+        {children}
+        <ClientNavBar />
+        <ServiceWorkerRegistrar />
+      </body>
     </html>
   );
 }

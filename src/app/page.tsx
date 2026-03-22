@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { FlipToggle } from "@/components/calendar/MonthGrid";
 import { StaticMonthGrid } from "@/components/calendar/StaticMonthGrid";
 import { DayDetailSheet } from "@/components/calendar/DayDetailSheet";
+import { PushPermissionBanner } from "@/components/calendar/PushPermissionBanner";
 import {
   useInfiniteCalendar,
   getCachedPanchang,
@@ -117,6 +118,9 @@ export default function Home() {
           <FlipToggle isPanchang={primaryMode === "panchang"} onToggle={toggleMode} />
         </div>
       </header>
+
+      {/* Push notification permission banner */}
+      <PushPermissionBanner />
 
       {/* Scrollable month list */}
       <main className="flex-1 px-3 pb-8 w-full max-w-md mx-auto">

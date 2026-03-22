@@ -2,7 +2,7 @@
 
 import { useCalendarStore } from "@/hooks/useCalendarStore";
 import { MonthGrid, FlipToggle } from "@/components/calendar/MonthGrid";
-import { DayDetail } from "@/components/calendar/DayDetail";
+import { DayDetailSheet } from "@/components/calendar/DayDetailSheet";
 
 export default function MonthView() {
   const {
@@ -45,14 +45,16 @@ export default function MonthView() {
           onGoToToday={goToToday}
         />
 
-        <DayDetail
-          year={year}
-          month={month}
-          day={selectedDay}
-          panchang={selectedPanchang}
-          festival={selectedFestival}
-        />
       </main>
+
+      <DayDetailSheet
+        year={year}
+        month={month}
+        day={selectedDay}
+        panchang={selectedPanchang}
+        festival={selectedFestival}
+        onDismiss={() => selectDay(null)}
+      />
     </div>
   );
 }
