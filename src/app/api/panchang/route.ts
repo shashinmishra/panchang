@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 /**
  * Server-side panchang computation using Swiss Ephemeris (via @fusionstrings/panchangam).
  *
- * The WASM package is Node.js CJS only (uses require('fs'), __dirname),
- * so all computation must happen server-side.
+ * Uses calculate_daily_panchang which computes tithi/nakshatra at actual
+ * sunrise for the given location — matching Drik Panchang exactly.
  *
  * GET /api/panchang?year=2026&month=3
  * Returns: { panchang: Record<day, PanchangData>, festivals: Record<day, Festival> }
@@ -19,7 +19,6 @@ async function getPanchangam() {
   return _panchangam;
 }
 
-// Re-import types/constants from our own types (kept as source of truth for names)
 import {
   TITHI_NAMES,
   TITHI_NAMES_EN,
@@ -38,39 +37,47 @@ import {
 
 import { FESTIVALS, type Festival } from "@/lib/panchang/special-days";
 
-/** Compute a single day's panchang using Swiss Ephemeris */
+// London: 51.5074°N, 0.1278°W, ~11m elevation
+const LONDON_LAT = 51.5074;
+const LONDON_LON = -0.1278;
+const LONDON_ALT = 11.0;
+const LAHIRI = 1; // AyanamshaMode.Lahiri
+
+/** Compute a single day's panchang at actual London sunrise */
 async function computePanchang(
   year: number,
   month: number,
   day: number,
-  hourUTC: number = 6.5 // ~6:30 AM GMT (London sunrise) = 06:30 UTC
 ): Promise<PanchangData> {
   const p = await getPanchangam();
+  const location = new p.Location(LONDON_LAT, LONDON_LON, LONDON_ALT);
 
-  const jd = p.p_julday(year, month, day, hourUTC, 1);
+  const dp = p.calculate_daily_panchang(year, month, day, location, LAHIRI);
 
-  const tithiInfo = p.calculate_tithi(jd);
-  const tithi = tithiInfo.index; // 1-30
+  // tithi_index from daily panchang: 1-30 (Shukla 1-15, Krishna 16-30)
+  const tithi = dp.tithi_index;
   const paksha: Paksha = tithi <= 15 ? "shukla" : "krishna";
 
-  const nakshatraInfo = p.calculate_nakshatra(jd, p.AyanamshaMode.Lahiri);
-  const nakshatra = nakshatraInfo.index - 1; // 1-indexed → 0-indexed
+  // nakshatra_index: 1-27 (1-indexed from WASM)
+  const nakshatra = dp.nakshatra_index - 1; // convert to 0-indexed
 
-  const varaInfo = p.calculate_vara(jd);
-  const vara = varaInfo.index; // 0=Sunday
+  // vara from sunrise JD
+  const sunriseJD = timestampToJD(dp.sunrise);
+  const vara = Math.floor(sunriseJD + 1.5) % 7; // 0=Sunday
 
-  const ayan = p.get_ayanamsha(p.AyanamshaMode.Lahiri, jd);
-  const sunTrop = p.calc_ut(jd, p.Constants.SE_SUN, p.Constants.SEFLG_SWIEPH).longitude;
-  const moonTrop = p.calc_ut(jd, p.Constants.SE_MOON, p.Constants.SEFLG_SWIEPH).longitude;
+  // Sun sidereal longitude at sunrise for rashi and masa
+  const ayan = dp.ayanamsha_value;
+  const sunTrop = p.calc_ut(sunriseJD, p.Constants.SE_SUN, p.Constants.SEFLG_SWIEPH).longitude;
+  const moonTrop = p.calc_ut(sunriseJD, p.Constants.SE_MOON, p.Constants.SEFLG_SWIEPH).longitude;
   const sunSidereal = ((sunTrop - ayan) % 360 + 360) % 360;
   const moonSidereal = ((moonTrop - ayan) % 360 + 360) % 360;
   const rashi = Math.floor(sunSidereal / 30);
 
   // Masa via Sun's rashi at estimated Amavasya (Purnimant system)
-  const masa = computeMasaPurnimant(tithi, jd, sunSidereal);
+  const masa = computeMasaPurnimant(tithi, sunriseJD, sunSidereal);
 
   // Adhik masa detection
-  const isAdhik = await computeIsAdhik(jd, year, tithi);
+  const isAdhik = await computeIsAdhik(sunriseJD, year, tithi);
 
   return {
     tithi,
@@ -97,16 +104,20 @@ async function computePanchang(
   };
 }
 
+/** Convert millisecond timestamp to Julian Day */
+function timestampToJD(ms: number): number {
+  // Unix epoch in JD = 2440587.5
+  return ms / 86400000 + 2440587.5;
+}
+
 /** Compute masa using Purnimant system: Sun's rashi at estimated Amavasya */
 function computeMasaPurnimant(tithi: number, jd: number, sunSidereal: number): number {
-  // Estimate days to the Amavasya within this Purnimant month
   let daysToAmavasya: number;
   if (tithi >= 16) {
     daysToAmavasya = (30 - tithi) * (29.53 / 30);
   } else {
     daysToAmavasya = -(tithi) * (29.53 / 30);
   }
-  // Sun moves ~1°/day, so adjust sidereal longitude
   const sunAtAmavasya = sunSidereal + daysToAmavasya * (360 / 365.25);
   const rashiAtAmavasya = Math.floor(((sunAtAmavasya % 360) + 360) % 360 / 30);
   return (rashiAtAmavasya + 1) % 12;
@@ -207,6 +218,26 @@ async function computeIsAdhik(jd: number, year: number, tithi: number): Promise<
 
 // --- Festival detection (server-side, using Swiss Ephemeris) ---
 
+/** Compute panchang at a specific hour (for festival tithi sampling) */
+async function computePanchangAtHour(
+  year: number,
+  month: number,
+  day: number,
+  hourUTC: number,
+): Promise<{ tithi: number; masa: number; isAdhik: boolean }> {
+  const p = await getPanchangam();
+  const jd = p.p_julday(year, month, day, hourUTC, 1);
+
+  const tithi = p.calculate_tithi(jd).index;
+  const ayan = p.get_ayanamsha(p.AyanamshaMode.Lahiri, jd);
+  const sunTrop = p.calc_ut(jd, p.Constants.SE_SUN, p.Constants.SEFLG_SWIEPH).longitude;
+  const sunSid = ((sunTrop - ayan) % 360 + 360) % 360;
+  const masa = computeMasaPurnimant(tithi, jd, sunSid);
+  const isAdhik = await computeIsAdhik(jd, year, tithi);
+
+  return { tithi, masa, isAdhik };
+}
+
 const SAMPLE_HOURS_UTC = [0.5, 3.5, 6.5, 9.5, 12.5, 18.5];
 
 async function getFestivalForDate(
@@ -214,7 +245,7 @@ async function getFestivalForDate(
   month: number,
   day: number
 ): Promise<Festival | null> {
-  const pSunrise = await computePanchang(year, month, day, 0.5);
+  const pSunrise = await computePanchangAtHour(year, month, day, 0.5);
   const dayMasa = pSunrise.masa;
   const dayIsAdhik = pSunrise.isAdhik;
 
@@ -222,7 +253,7 @@ async function getFestivalForDate(
     if (dayMasa !== f.masa || dayIsAdhik) continue;
 
     for (const h of SAMPLE_HOURS_UTC) {
-      const pd = await computePanchang(year, month, day, h);
+      const pd = await computePanchangAtHour(year, month, day, h);
       if (pd.tithi === f.tithi) {
         return f;
       }
@@ -274,7 +305,7 @@ export async function GET(request: Request) {
 
   const daysInMonth = new Date(year, month, 0).getDate();
 
-  // Compute panchang for all days in the month
+  // Compute panchang for all days in the month at actual London sunrise
   const panchangMap: Record<number, PanchangData> = {};
   for (let day = 1; day <= daysInMonth; day++) {
     panchangMap[day] = await computePanchang(year, month, day);
@@ -293,7 +324,6 @@ export async function GET(request: Request) {
     { panchang: panchangMap, festivals: festivalMap },
     {
       headers: {
-        // Panchang data is deterministic for a given date — cache aggressively
         "Cache-Control": "public, max-age=86400, s-maxage=2592000, stale-while-revalidate=86400",
       },
     }
