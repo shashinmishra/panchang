@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["@fusionstrings/panchangam"],
   async headers() {
     return [
       {
