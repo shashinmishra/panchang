@@ -43,7 +43,7 @@ async function computePanchang(
   year: number,
   month: number,
   day: number,
-  hourUTC: number = 0
+  hourUTC: number = 6.5 // ~6:30 AM GMT (London sunrise) = 06:30 UTC
 ): Promise<PanchangData> {
   const p = await getPanchangam();
 
